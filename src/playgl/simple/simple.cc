@@ -1,58 +1,87 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 
 #include <iostream>
+#include <memory>
+#include "ui.h"
+#include "shader.h"
+
 
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-const char* vertexShaderSource = "#version 330 core\n"
-    "layout (location = 0) in vec3 aPos;\n"
-    "void main()\n"
-    "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-    "}\0";
+// Camera
+ui::Camera* camera_ptr = nullptr;
+ui::Perspective* perspective_ptr = nullptr;
 
-const char* fragmentShader1Source = "#version 330 core\n"
-    "out vec4 FragColor;\n"
-    "void main()\n"
-    "{\n"
-    "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-    "}\n\0";
-const char* fragmentShader2Source = "#version 330 core\n"
-    "out vec4 FragColor;\n"
-    "void main()\n"
-    "{\n"
-    "   FragColor = vec4(1.0f, 1.0f, 0.0f, 1.0f);\n"
-    "}\n\0";
+// Mouse
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+bool firstMouse = true;
 
+// timing
+float deltaTime = 0.0f;	
+float lastFrame = 0.0f;
 
-
-// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
-// ---------------------------------------------------------------------------------------------------------
-void processInput(GLFWwindow *window) {
-    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
-    }
-    if(glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) {
-        static bool mode = true;
-        if (mode) {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);  // wire mode
-            mode = false;
-        } else {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);  // filled mode
-            mode = true;
-        }
-    }
+// Window size changed callback
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
 }
 
-// glfw: whenever the window size changed (by OS or user resize) this callback function executes
-// ---------------------------------------------------------------------------------------------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    // make sure the viewport matches the new window dimensions; note that width and 
-    // height will be significantly larger than specified on retina displays.
-    glViewport(0, 0, width, height);
+// Mouse callback
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float dx = xpos - lastX;
+    float dy = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+    lastX = xpos;
+    lastY = ypos;
+
+    camera_ptr->Rotate(dx, dy);
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    camera_ptr->Zoom(yoffset);
+}
+
+void printVec3(const std::string& name, glm::vec3 v) {
+    std::cout << name << ": " << v.x << " "  << v.y << " " << v.z << std::endl;
+}
+
+void processInput(GLFWwindow* window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::FORWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::BACKWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::LEFT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::RIGHT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::UP, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+        camera_ptr->Move(ui::Camera::DOWN, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
+        printVec3("Position", camera_ptr->Position);
+        printVec3("Front", camera_ptr->Front);
+        printVec3("Up", camera_ptr->Up);
+        printVec3("Right", camera_ptr->Right);
+
+        std::cout << "Yaw: " << camera_ptr->Yaw << " "
+                  << "Pitch: "  << camera_ptr->Pitch << std::endl;
+
+        std::cout << "Zoom: " << camera_ptr->FoV << std::endl;
+    }
 }
 
 int main() {
@@ -73,6 +102,11 @@ int main() {
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+
+    // tell GLFW to capture our mouse
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // glad: load all OpenGL function pointers
     // ---------------------------------------
@@ -81,169 +115,111 @@ int main() {
         return -1;
     }
 
-    int success;
-    char infoLog[512];
+    glEnable(GL_DEPTH_TEST);
 
-    int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);  // check for shader compile errors
-    if (!success) {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
+    ui::Camera camera_obj(glm::vec3(0.0f, 0.0f, 3.0f));
+    camera_ptr = &camera_obj;
+    ui::Perspective perp_obj((float) SCR_WIDTH, (float) SCR_HEIGHT, camera_ptr);
+    perspective_ptr = &perp_obj;
 
-     // fragment shader
-    int fragmentShaderOrange = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShaderOrange, 1, &fragmentShader1Source, NULL);
-    glCompileShader(fragmentShaderOrange);
-    glGetShaderiv(fragmentShaderOrange, GL_COMPILE_STATUS, &success);  // check for shader compile errors
-    if (!success) {
-        glGetShaderInfoLog(fragmentShaderOrange, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-    int fragmentShaderYellow = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShaderYellow, 1, &fragmentShader2Source, NULL);
-    glCompileShader(fragmentShaderYellow);
-    glGetShaderiv(fragmentShaderYellow, GL_COMPILE_STATUS, &success);  // check for shader compile errors
-    if (!success) {
-        glGetShaderInfoLog(fragmentShaderYellow, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
+    render::ShaderProgram shader_prog("simple.vs", "simple.fs");
 
-    // link shaders
-    int shaderProgramOrange = glCreateProgram();
-    glAttachShader(shaderProgramOrange, vertexShader);
-    glAttachShader(shaderProgramOrange, fragmentShaderOrange);
-    glLinkProgram(shaderProgramOrange);
-    glGetProgramiv(shaderProgramOrange, GL_LINK_STATUS, &success);  // check for linking errors
-    if (!success) {
-        glGetProgramInfoLog(shaderProgramOrange, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
+    // position, normal
+    float vertices[] = {
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+         0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
 
-    int shaderProgramYellow = glCreateProgram();
-    glAttachShader(shaderProgramYellow, vertexShader);
-    glAttachShader(shaderProgramYellow, fragmentShaderYellow);
-    glLinkProgram(shaderProgramYellow);
-    glGetProgramiv(shaderProgramYellow, GL_LINK_STATUS, &success);  // check for linking errors
-    if (!success) {
-        glGetProgramInfoLog(shaderProgramYellow, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShaderYellow);
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+         0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
 
-    // register shader delete function
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShaderOrange);
-    glDeleteShader(fragmentShaderYellow);
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
 
-    // set up vertex data (and buffer(s)) and configure vertex attributes
-    // ------------------------------------------------------------------
-    float vertices1[] = {
-        0.5f,  0.5f, 0.0f,  // top right
-        0.5f, -0.5f, 0.0f,  // bottom right
-        -0.5f, -0.5f, 0.0f,  // bottom left
-        -0.5f,  0.5f, 0.0f   // top left 
-    };
-    float vertices2[] = {
-        0.5f,  0.5f, 0.0f,  // top left
-        0.5f, -0.5f, 0.0f,  // bottom left
-        0.75f, -0.5f, 0.0f,  // bottom right
-        0.75f,  0.5f, 0.0f   // top right 
-    };
-    unsigned int indices[] = {  // note that we start from 0!
-        0, 1, 3,  // first Triangle
-        1, 2, 3   // second Triangle
+         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+         0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+         0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+         0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+         0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
     };
 
-    unsigned int VBOs[2];  // vertex buffer object
-    unsigned int VAOs[2];  // vertex array object
-    unsigned int EBO;  // element buffer object
-    glGenVertexArrays(/*num_of_obj=*/2, VAOs);
-    glGenBuffers(/*num_of_obj=*/2, VBOs);
-    glGenBuffers(/*num_of_obj=*/1, &EBO);
+    unsigned int VBO[1];
+    unsigned int VAO[1];
 
-    // bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
-    glBindVertexArray(VAOs[0]);
+    glGenVertexArrays(1, VAO);
+    glGenBuffers(1, VBO);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices1), vertices1, GL_STATIC_DRAW);
+    // push raw data into VBO
+    glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    // setup data attribute
+    glBindVertexArray(VAO[0]);
 
-    glVertexAttribPointer(/*index=*/0, /*size=*/3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(/*index=*/0);
+    // position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // normal attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
-    glBindVertexArray(VAOs[1]);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices2), vertices2, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(/*index=*/0, /*size=*/3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(/*index=*/0);
-
-    // note that this is allowed, the call to glVertexAttribPointer registered 
-    // VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
-    // glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    // remember: do NOT unbind the EBO while a VAO is active as the 
-    // bound element buffer object IS stored in the VAO; keep the EBO bound.
-    //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-    // You can unbind the VAO afterwards so other VAO calls won't accidentally
-    // modify this VAO, but this rarely happens. 
-    // Modifying other VAOs requires a call to glBindVertexArray anyways so we
-    // generally don't unbind VAOs (nor VBOs) when it's not directly necessary.
     
-    // glBindVertexArray binds the vertex array object with name array. 
-    // array is the name of a vertex array object previously returned from a call to glGenVertexArrays, 
-    // or zero to break the existing vertex array object binding.
-    glBindVertexArray(0);
-
-    // uncomment this call to draw in wireframe polygons.
-    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-    // render loop
-    // -----------
+    // // render loop
+    // // -----------
     while (!glfwWindowShouldClose(window)) {
-        // input
-        // -----
+
+        // Update time
+        float currentFrame = glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        // Input
         processInput(window);
 
-        // render
-        // ------
+        // Render
+        // clear buffer
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);  // Set buffer clearing color to Color()
-        glClear(GL_COLOR_BUFFER_BIT);  // Clear rendering buffer
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // draw our first triangle
-        glUseProgram(shaderProgramOrange);
-        // seeing as we only have a single VAO there's no need to bind it every time,
-        // but we'll do so to keep things a bit more organized
-        glBindVertexArray(VAOs[0]); 
+        // Enable shader
+        shader_prog.Use();
+        shader_prog.setMat4("model", glm::mat4(1.0f));
+        shader_prog.setMat4("view", camera_ptr->GetViewMatrix());
+        shader_prog.setMat4("projection", perspective_ptr->GetProjMatrix());
+        shader_prog.setVec3("lightPos", camera_ptr->Position);
+        // shader_prog.setVec3("viewPos", camera_ptr->Position);
+        shader_prog.setVec3("lightColor", glm::vec3(1.0f));
+        shader_prog.setVec3("objectColor", glm::vec3(1.0f));
 
-        // glDrawArrays specifies multiple geometric primitives with very few subroutine calls.
-        // Instead of calling a GL procedure to pass each individual vertex, normal, texture coordinate, 
-        // edge flag, or color, you can prespecify separate arrays of vertices, normals, and colors and use 
-        // them to construct a sequence of primitives with a single call to glDrawArrays.
-        // glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        // glDrawElements specifies multiple geometric primitives with very few subroutine calls. 
-        // Instead of calling a GL function to pass each individual vertex, normal, texture coordinate, edge flag, or color, 
-        // you can prespecify separate arrays of vertices, normals, and so on, and use them to construct a sequence of primitives 
-        // with a single call to glDrawElements.
-        glDrawElements(GL_TRIANGLES, /*count=*/6, GL_UNSIGNED_INT, 0);
-        // glBindVertexArray(0); // no need to unbind it every time 
-
-        // second
-        glUseProgram(shaderProgramYellow);
-        glBindVertexArray(VAOs[1]);
-        glDrawElements(GL_TRIANGLES, /*count=*/6, GL_UNSIGNED_INT, 0);
+        // enable attribute
+        glBindVertexArray(VAO[0]);
+        glDrawArrays(GL_TRIANGLES, /*first=*/0, /*count=*/36);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -252,9 +228,8 @@ int main() {
     }
     // optional: de-allocate all resources once they've outlived their purpose:
     // ------------------------------------------------------------------------
-    glDeleteVertexArrays(2, VAOs);
-    glDeleteBuffers(2, VBOs);
-    glDeleteBuffers(1, &EBO);
+    glDeleteVertexArrays(1, VAO);
+    glDeleteBuffers(1, VBO);
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
